@@ -24,13 +24,21 @@ def db_add_user(name, roll_no, year, section):
         "year": year,
         "section": section
     }
-    response = supabase.table("users").insert(data).execute()
-    return response.data[0]["id"] if response.data else None
+    try:
+        response = supabase.table("users").insert(data).execute()
+        return response.data[0]["id"] if response.data else None
+    except Exception as e:
+        print(f"Supabase Error (add_user): {e}")
+        return None
 
 def db_get_student_info(roll_no):
     if not supabase: return None
-    response = supabase.table("users").select("*").eq("roll_no", roll_no).execute()
-    return response.data[0] if response.data else None
+    try:
+        response = supabase.table("users").select("*").eq("roll_no", roll_no).execute()
+        return response.data[0] if response.data else None
+    except Exception as e:
+        print(f"Supabase Error (get_student_info): {e}")
+        return None
 
 def db_get_student_info_by_id(user_id):
     if not supabase: return None
@@ -65,8 +73,12 @@ def db_get_active_periods():
     from datetime import datetime, timedelta
     expiry_limit = (datetime.now() - timedelta(hours=15)).isoformat()
     
-    response = supabase.table("periods").select("*").gte("created_at", expiry_limit).execute()
-    return response.data if response.data else []
+    try:
+        response = supabase.table("periods").select("*").gte("created_at", expiry_limit).execute()
+        return response.data if response.data else []
+    except Exception as e:
+        print(f"Supabase Error (get_active_periods): {e}")
+        return []
 
 def db_delete_period(period_id):
     if not supabase: return False
