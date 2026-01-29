@@ -1,15 +1,6 @@
-<<<<<<< HEAD
 opencv-contrib-python
 numpy
 pandas
-streamlit
+streamlit>=1.31.0
 supabase
 python-dotenv
-=======
-opencv-contrib-python
-numpy
-pandas
-streamlit
-supabase
-python-dotenv
->>>>>>> 79b62da0671f2db217909759bbc1662ebee903b4
