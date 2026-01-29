@@ -179,48 +179,44 @@ elif choice == "Mark Attendance":
         if recognizer is None:
             st.error("Model not found. Please register users first.")
         else:
-            st.info("📸 Auto-Detection Active - Position your face in the camera")
+            st.info("📸 Click 'Capture' to detect and mark attendance automatically")
             
-            # Auto-capture camera
-            img_file = st.camera_input("Camera", key=f"camera_{int(time.time())}")
+            # Simple capture button
+            capture = st.button("🎯 Capture & Detect", type="primary", use_container_width=True)
             
-            if img_file:
-                # Process the image
-                file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
-                frame = cv2.imdecode(file_bytes, 1)
+            if capture:
+                # Use camera input for capture
+                img_file = st.camera_input("Position your face", key="attendance_camera")
                 
-                face_gray, bbox = detect_face(frame)
-                if face_gray is not None:
-                    id_, confidence = recognizer.predict(face_gray)
+                if img_file:
+                    # Process the image
+                    file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
+                    frame = cv2.imdecode(file_bytes, 1)
                     
-                    if confidence < 80:
-                        info = get_student_info(id_)
-                        if info:
-                            name = info["name"]
-                            roll_no = info["roll_no"]
-                            year = info["year"]
-                            section = info["section"]
-                            
-                            # Mark attendance
-                            if roll_no not in st.session_state.marked_students:
-                                if db_mark_attendance(roll_no, name, year, section, subject, pid):
-                                    st.session_state.marked_students.add(roll_no)
-                                    st.success(f"✅ Attendance marked for {name}!")
-                                    st.balloons()
-                                    time.sleep(1)
-                                    st.rerun()
-                            else:
-                                st.info(f"Already marked: {name}")
-                                time.sleep(1)
-                                st.rerun()
+                    face_gray, bbox = detect_face(frame)
+                    if face_gray is not None:
+                        id_, confidence = recognizer.predict(face_gray)
+                        
+                        if confidence < 80:
+                            info = get_student_info(id_)
+                            if info:
+                                name = info["name"]
+                                roll_no = info["roll_no"]
+                                year = info["year"]
+                                section = info["section"]
+                                
+                                # Mark attendance
+                                if roll_no not in st.session_state.marked_students:
+                                    if db_mark_attendance(roll_no, name, year, section, subject, pid):
+                                        st.session_state.marked_students.add(roll_no)
+                                        st.success(f"✅ Attendance marked for {name}!")
+                                        st.balloons()
+                                else:
+                                    st.info(f"Already marked: {name}")
+                        else:
+                            st.error("Face not recognized. Please try again.")
                     else:
-                        st.warning("Face not recognized - trying again...")
-                        time.sleep(1)
-                        st.rerun()
-                else:
-                    st.warning("No face detected - trying again...")
-                    time.sleep(1)
-                    st.rerun()
+                        st.error("No face detected. Please ensure your face is clearly visible.")
             
             # Show marked count
             if st.session_state.marked_students:
