@@ -4,5 +4,3 @@ pandas
 streamlit>=1.31.0
 supabase
 python-dotenv
-streamlit-webrtc
-av
