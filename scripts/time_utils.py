@@ -1,10 +1,5 @@
 from datetime import datetime, timedelta
-import sqlite3
-import os
-
-DB_PATH = os.path.join("data", "database.db")
-
-from scripts.supabase_utils import db_get_active_periods, db_add_period, db_delete_period
+from scripts.supabase_utils import db_get_active_periods, db_add_period, db_delete_period, get_now_ist
 
 def get_all_periods():
     """Returns all periods that are less than 15 hours old from Supabase."""
@@ -26,7 +21,7 @@ def get_current_active_period():
     period_start and period_start + 15 minutes.
     Only checks unexpired periods.
     """
-    now = datetime.now()
+    now = get_now_ist()
     current_time = now.time()
     periods = get_all_periods()
     
@@ -50,7 +45,7 @@ def get_period_status():
         return f"🟢 Active: {subject} ({times}) - Attendance Open"
     
     # Check if we are in a period but after the 15m mark
-    now = datetime.now()
+    now = get_now_ist()
     current_time = now.time()
     periods = get_all_periods()
     for pid, subject, start_str, end_str in periods:

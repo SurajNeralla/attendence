@@ -4,6 +4,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from datetime import datetime, timedelta, timezone
+
+def get_now_ist():
+    """Returns the current time in India Standard Time (UTC+5:30)."""
+    # Streamlit Cloud is usually UTC, so we shift to IST
+    return datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+
 import streamlit as st
 
 # Load credentials
@@ -88,9 +95,8 @@ def db_add_period(subject, start_time, end_time):
 def db_get_active_periods():
     if not supabase: return []
     # Fetch periods from the last 15 hours
-    # Calculate the timestamp manually in Python for better compatibility
-    from datetime import datetime, timedelta
-    expiry_limit = (datetime.now() - timedelta(hours=15)).isoformat()
+    # Use IST for consistent expiry calculation
+    expiry_limit = (get_now_ist() - timedelta(hours=15)).isoformat()
     
     try:
         response = supabase.table("periods").select("*").gte("created_at", expiry_limit).execute()
