@@ -8,12 +8,55 @@ from datetime import datetime, timedelta
 from scripts.face_utils import add_user, get_user_name, detect_face, train_model, get_recognizer, get_student_info, delete_user_data
 from scripts.time_utils import get_all_periods, add_period, delete_period, get_current_active_period, get_period_status
 from scripts.supabase_utils import db_mark_attendance, db_get_attendance_by_date, db_get_all_students
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration, WebRtcMode
+import av
+import threading
 
 # Page configuration
 st.set_page_config(page_title="GVP Attendance System", layout="wide")
 
-# Page configuration
-st.set_page_config(page_title="GVP Attendance System", layout="wide")
+# Video Processor for Real-Time Recognition
+class FaceRecognitionProcessor(VideoProcessorBase):
+    def __init__(self, recognizer, subject, period_id):
+        self.recognizer = recognizer
+        self.subject = subject
+        self.period_id = period_id
+        self.lock = threading.Lock()
+        self.marked_students = set()  # Track who's been marked
+        
+    def recv(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        
+        # Detect and recognize face
+        face_gray, bbox = detect_face(img)
+        
+        if face_gray is not None:
+            (x, y, w, h) = bbox
+            id_, confidence = self.recognizer.predict(face_gray)
+            
+            name = "Unknown"
+            color = (0, 0, 255)  # Red for unknown
+            
+            if confidence < 80:
+                info = get_student_info(id_)
+                if info:
+                    name = info["name"]
+                    roll_no = info["roll_no"]
+                    year = info["year"]
+                    section = info["section"]
+                    color = (0, 255, 0)  # Green for recognized
+                    
+                    # Mark attendance (only once per session)
+                    with self.lock:
+                        if roll_no not in self.marked_students:
+                            if db_mark_attendance(roll_no, name, year, section, self.subject, self.period_id):
+                                self.marked_students.add(roll_no)
+            
+            # Draw bounding box and name
+            cv2.rectangle(img, (x, y), (x+w, y+h), color, 2)
+            cv2.putText(img, name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
+        
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 # PWA Logic: Inject Manifest and Service Worker
 # Note: Using raw GitHub URLs for reliable cross-domain serving on Streamlit Cloud
@@ -175,37 +218,29 @@ elif choice == "Mark Attendance":
         if recognizer is None:
             st.error("Model not found. Please register users first.")
         else:
-            st.info("Please take a photo to mark attendance.")
-            img_file = st.camera_input("Mark Attendance")
+            st.info("🎥 Live Camera Active - Look at the camera to mark attendance")
+            st.markdown("**Green box** = Recognized | **Red box** = Unknown")
             
-            if img_file:
-                # Convert the captured image to OpenCV format
-                file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
-                frame = cv2.imdecode(file_bytes, 1)
-                
-                face_gray, bbox = detect_face(frame)
-                if face_gray is not None:
-                    (x, y, w, h) = bbox
-                    id_, confidence = recognizer.predict(face_gray)
-                    
-                    if confidence < 80:
-                        info = get_student_info(id_)
-                        if info:
-                            name = info["name"]
-                            roll_no = info["roll_no"]
-                            year = info["year"]
-                            section = info["section"]
-                            
-                            # Cloud Logging with Supabase
-                            if db_mark_attendance(roll_no, name, year, section, subject, pid):
-                                st.success(f"✅ Attendance marked for {name} ({roll_no})")
-                                st.balloons()
-                            else:
-                                st.warning(f"Attendance already marked for {name} in this period.")
-                    else:
-                        st.error("Face not recognized. Please ensure you are registered or try again with better lighting.")
-                else:
-                    st.error("No face detected. Please ensure your face is clearly visible in the camera frame.")
+            # WebRTC Configuration
+            rtc_config = RTCConfiguration(
+                {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+            )
+            
+            # Start live video stream
+            webrtc_ctx = webrtc_streamer(
+                key="face-recognition-live",
+                mode=WebRtcMode.SENDRECV,
+                rtc_configuration=rtc_config,
+                video_processor_factory=lambda: FaceRecognitionProcessor(recognizer, subject, pid),
+                async_processing=True,
+                media_stream_constraints={"video": True, "audio": False},
+            )
+            
+            # Display marked students
+            if webrtc_ctx.video_processor:
+                with webrtc_ctx.video_processor.lock:
+                    if webrtc_ctx.video_processor.marked_students:
+                        st.success(f"✅ {len(webrtc_ctx.video_processor.marked_students)} student(s) marked")
 
 elif choice == "View Records":
     st.subheader("📊 Attendance History (Cloud)")
