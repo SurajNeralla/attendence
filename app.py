@@ -171,19 +171,18 @@ elif choice == "Mark Attendance":
         if recognizer is None:
             st.error("Model not found. Please register users first.")
         else:
-            run = st.checkbox('Start Webcam')
-            FRAME_WINDOW = st.image([])
-            camera = cv2.VideoCapture(0)
+            st.info("Please take a photo to mark attendance.")
+            img_file = st.camera_input("Mark Attendance")
             
-            while run:
-                ret, frame = camera.read()
-                if not ret: break
+            if img_file:
+                # Convert the captured image to OpenCV format
+                file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
+                frame = cv2.imdecode(file_bytes, 1)
                 
                 face_gray, bbox = detect_face(frame)
                 if face_gray is not None:
                     (x, y, w, h) = bbox
                     id_, confidence = recognizer.predict(face_gray)
-                    name = "Unknown"
                     
                     if confidence < 80:
                         info = get_student_info(id_)
@@ -195,16 +194,14 @@ elif choice == "Mark Attendance":
                             
                             # Cloud Logging with Supabase
                             if db_mark_attendance(roll_no, name, year, section, subject, pid):
-                                st.toast(f"✅ Attendance marked for {name} ({subject})")
+                                st.success(f"✅ Attendance marked for {name} ({roll_no})")
+                                st.balloons()
+                            else:
+                                st.warning(f"Attendance already marked for {name} in this period.")
                     else:
-                        name = "Unknown"
-                    
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                    cv2.putText(frame, f"{name}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-
-                FRAME_WINDOW.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            else:
-                camera.release()
+                        st.error("Face not recognized. Please ensure you are registered or try again with better lighting.")
+                else:
+                    st.error("No face detected. Please ensure your face is clearly visible in the camera frame.")
 
 elif choice == "View Records":
     st.subheader("📊 Attendance History (Cloud)")
