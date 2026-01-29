@@ -2,3 +2,5 @@ opencv-contrib-python
 numpy
 pandas
 streamlit
+supabase
+python-dotenv

@@ -12,35 +12,20 @@ TRAINER_PATH = os.path.join("models", "trainer.yml")
 face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
 face_cascade = cv2.CascadeClassifier(face_cascade_path)
 
-def get_db_connection():
-    return sqlite3.connect(DB_PATH)
+from scripts.supabase_utils import db_add_user, db_get_student_info, db_get_all_students, db_delete_user, db_get_student_info_by_id
 
 def add_user(name, roll_no, year, section):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO users (name, roll_no, year, section, encoding) VALUES (?, ?, ?, ?, ?)", 
-        (name, roll_no, year, section, b"")
-    ) 
-    user_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
+    """Registers user in Supabase and returns the assigned ID."""
+    user_id = db_add_user(name, roll_no, year, section)
     return user_id
 
 def get_student_info(user_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT name, roll_no, year, section FROM users WHERE id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return {
-            "name": row[0],
-            "roll_no": row[1],
-            "year": row[2],
-            "section": row[3]
-        }
-    return None
+    """Retrieves student info from Supabase by user ID (integer)."""
+    return db_get_student_info_by_id(user_id)
+
+def get_student_info_by_roll(roll_no):
+    """Retrieves student info from Supabase by roll number."""
+    return db_get_student_info(roll_no)
 
 def get_user_name(user_id):
     info = get_student_info(user_id)
@@ -63,32 +48,25 @@ def detect_face(image):
 import shutil
 
 def delete_user_data(user_id):
-    """Deletes user from DB, removes face samples, and retrains the model."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # 1. Delete from DB
-    cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-    
-    # 2. Delete face samples folder
-    user_folder = os.path.join("data", "faces", str(user_id))
-    if os.path.exists(user_folder):
-        try:
-            shutil.rmtree(user_folder)
-        except PermissionError:
-            # On Windows, sometimes files are locked. Try once more or tell user.
-            import time
-            time.sleep(0.5)
+    """Deletes user from Supabase, removes face samples, and retrains the model."""
+    # 1. Delete from Supabase
+    if db_delete_user(user_id):
+        # 2. Delete face samples folder
+        user_folder = os.path.join("data", "faces", str(user_id))
+        if os.path.exists(user_folder):
             try:
                 shutil.rmtree(user_folder)
-            except Exception as e:
-                print(f"Warning: Could not delete folder {user_folder}: {e}")
-                # We continue anyway so the DB entry is gone and model retrains
+            except PermissionError:
+                import time
+                time.sleep(0.5)
+                try:
+                    shutil.rmtree(user_folder)
+                except Exception as e:
+                    print(f"Warning: Could not delete folder {user_folder}: {e}")
         
-    # 3. Retrain model
-    return train_model()
+        # 3. Retrain model
+        return train_model()
+    return False
 
 def train_model():
     """Trains LBPH recognizer based on images in data/faces."""

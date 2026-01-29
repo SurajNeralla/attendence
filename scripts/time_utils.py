@@ -4,39 +4,21 @@ import os
 
 DB_PATH = os.path.join("data", "database.db")
 
-def get_db_connection():
-    return sqlite3.connect(DB_PATH)
+from scripts.supabase_utils import db_get_active_periods, db_add_period, db_delete_period
 
 def get_all_periods():
-    """Returns all periods that are less than 15 hours old."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # SQLite logic to filter by 15 hours
-    cursor.execute("""
-        SELECT id, subject, start_time, end_time, created_at 
-        FROM periods 
-        WHERE datetime(created_at) >= datetime('now', '-15 hours', 'localtime')
-    """)
-    periods = cursor.fetchall()
-    conn.close()
-    
-    # Return formatted for the UI (excluding created_at unless needed)
-    return [(p[0], p[1], p[2], p[3]) for p in periods]
+    """Returns all periods that are less than 15 hours old from Supabase."""
+    periods = db_get_active_periods()
+    # Return formatted for the UI
+    return [(p["id"], p["subject"], p["start_time"], p["end_time"]) for p in periods]
 
 def add_period(subject, start_time, end_time):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO periods (subject, start_time, end_time) VALUES (?, ?, ?)", (subject, start_time, end_time))
-    conn.commit()
-    conn.close()
+    """Adds a new period to Supabase."""
+    return db_add_period(subject, start_time, end_time)
 
 def delete_period(pid):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM periods WHERE id = ?", (pid,))
-    conn.commit()
-    conn.close()
+    """Deletes a period from Supabase."""
+    return db_delete_period(pid)
 
 def get_current_active_period():
     """

@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from scripts.face_utils import add_user, get_user_name, detect_face, train_model, get_recognizer, get_student_info, delete_user_data
 from scripts.time_utils import get_all_periods, add_period, delete_period, get_current_active_period, get_period_status
+from scripts.supabase_utils import db_mark_attendance, db_get_attendance_by_date, db_get_all_students
 
 # Page configuration
 st.set_page_config(page_title="GVP Attendance System", layout="wide")
@@ -67,13 +68,14 @@ elif choice == "Admin: Schedule":
     st.markdown("---")
     st.subheader("👥 Student Management")
     
-    # Get all students for management
-    conn = sqlite3.connect("data/database.db")
-    df_students = pd.read_sql_query("SELECT id, name, roll_no, year, section FROM users", conn)
-    conn.close()
+    # Get all students for management from Supabase
+    all_students = db_get_all_students()
+    df_students = pd.DataFrame(all_students)
     
     if not df_students.empty:
-        st.dataframe(df_students, use_container_width=True)
+        # Reorder columns for better view
+        cols = ["id", "name", "roll_no", "year", "section", "created_at"]
+        st.dataframe(df_students[cols], use_container_width=True)
         
         user_to_del = st.number_input("Enter Student ID to delete", min_value=1, step=1)
         if st.button("🗑️ Delete Student"):
@@ -119,17 +121,20 @@ elif choice == "Register User":
             if face_gray is not None:
                 try:
                     user_id = add_user(name, roll_no, year, section)
-                    user_folder = os.path.join("data", "faces", str(user_id))
-                    os.makedirs(user_folder, exist_ok=True)
-                    cv2.imwrite(os.path.join(user_folder, "1.jpg"), face_gray)
-                    
-                    with st.spinner("Training model..."):
-                        if train_model():
-                            st.success(f"User {name} registered and model trained!")
-                        else:
-                            st.error("Error during training.")
-                except sqlite3.IntegrityError:
-                    st.error("Roll Number already exists!")
+                    if user_id:
+                        user_folder = os.path.join("data", "faces", str(user_id))
+                        os.makedirs(user_folder, exist_ok=True)
+                        cv2.imwrite(os.path.join(user_folder, "1.jpg"), face_gray)
+                        
+                        with st.spinner("Training model..."):
+                            if train_model():
+                                st.success(f"User {name} registered and model trained!")
+                            else:
+                                st.error("Error during training.")
+                    else:
+                        st.error("Roll Number already exists or database error!")
+                except Exception as e:
+                    st.error(f"Error: {e}")
             else:
                 st.error("No face detected. Please ensure your face is clearly visible.")
 
@@ -170,35 +175,9 @@ elif choice == "Mark Attendance":
                             year = info["year"]
                             section = info["section"]
                             
-                            date_str = datetime.now().strftime("%Y-%m-%d")
-                            time_str = datetime.now().strftime("%H:%M:%S")
-                            log_file = os.path.join("data", f"attendance_{date_str}.csv")
-                            
-                            cols = ["Roll_No", "Name", "Year", "Section", "Time", "Subject", "Period_ID"]
-                            if not os.path.exists(log_file):
-                                pd.DataFrame(columns=cols).to_csv(log_file, index=False)
-                            
-                            df = pd.read_csv(log_file)
-                            
-                            # Robust check: if file exists but lacks columns, reset it
-                            if 'Roll_No' not in df.columns:
-                                df = pd.DataFrame(columns=cols)
-                                df.to_csv(log_file, index=False)
-
-                            # Robust type-safe comparison
-                            already_marked = False
-                            if not df.empty:
-                                df['Roll_No'] = df['Roll_No'].astype(str)
-                                df['Period_ID'] = df['Period_ID'].astype(int)
-                                already_marked = ((df['Roll_No'] == str(roll_no)) & (df['Period_ID'] == int(pid))).any()
-
-                            if not already_marked:
-                                new_entry = pd.DataFrame([[roll_no, name, year, section, time_str, subject, pid]], 
-                                                         columns=cols)
-                                df = pd.concat([df, new_entry], ignore_index=True)
-                                df.to_csv(log_file, index=False)
+                            # Cloud Logging with Supabase
+                            if db_mark_attendance(roll_no, name, year, section, subject, pid):
                                 st.toast(f"✅ Attendance marked for {name} ({subject})")
-                                # Optional: Add a delay or sound here if needed
                     else:
                         name = "Unknown"
                     
@@ -210,29 +189,42 @@ elif choice == "Mark Attendance":
                 camera.release()
 
 elif choice == "View Records":
-    st.subheader("📊 Attendance History")
-    log_files = [f for f in os.listdir("data") if f.startswith("attendance_") and f.endswith(".csv")]
-    if not log_files:
-        st.info("No attendance records found.")
+    st.subheader("📊 Attendance History (Cloud)")
+    
+    col_date, _ = st.columns([1, 2])
+    selected_date = col_date.date_input("Select Date", datetime.now())
+    date_str = selected_date.strftime("%Y-%m-%d")
+    
+    # Fetch from Supabase
+    records = db_get_attendance_by_date(date_str)
+    
+    if not records:
+        st.info(f"No attendance records found for {date_str}.")
     else:
-        selected_file = st.selectbox("Select Date", log_files)
-        df = pd.read_csv(os.path.join("data", selected_file))
+        df = pd.DataFrame(records)
+        # Rename columns for clarity in UI
+        col_map = {
+            "roll_no": "Roll_No",
+            "name": "Name",
+            "year": "Year",
+            "section": "Section",
+            "marked_at": "Time",
+            "subject": "Subject",
+            "period_id": "Period_ID"
+        }
+        df = df.rename(columns=col_map)
         
         st.markdown("### Filters")
         f_col1, f_col2 = st.columns(2)
         year_filter = f_col1.multiselect("Filter by Year", options=[1, 2, 3], default=[1, 2, 3])
         section_filter = f_col2.multiselect("Filter by Section", options=["A", "B", "C", "D"], default=["A", "B", "C", "D"])
         
-        # Robust filtering: check if columns exist
-        filtered_df = df
-        if 'Year' in df.columns and 'Section' in df.columns:
-            filtered_df = df[df['Year'].isin(year_filter) & df['Section'].isin(section_filter)]
-        else:
-            st.warning("This record file uses an older format and cannot be filtered by Year or Section.")
+        # Robust filtering
+        filtered_df = df[df['Year'].isin(year_filter) & df['Section'].isin(section_filter)]
         
-        st.dataframe(filtered_df, use_container_width=True)
+        st.dataframe(filtered_df[["Roll_No", "Name", "Year", "Section", "Time", "Subject", "Period_ID"]], use_container_width=True)
         csv = filtered_df.to_csv(index=False).encode('utf-8')
-        st.download_button("Download CSV", csv, selected_file, "text/csv")
+        st.download_button("Download CSV", csv, f"attendance_{date_str}.csv", "text/csv")
 
         st.markdown("---")
         st.subheader("📋 Detailed Cohort Report (P/A Status)")
@@ -265,7 +257,7 @@ elif choice == "View Records":
         selected_pid = st.selectbox("Select Period ID for Report", options=active_pids)
         
         if st.button("Generate P/A Report"):
-            # 1. Parse roll range as integers if possible
+            # 1. Parse roll range as integers
             try:
                 start_r = int(roll_start)
                 end_r = int(roll_end)
@@ -274,25 +266,19 @@ elif choice == "View Records":
                 st.error("Roll Number range must be numeric for automatic sequence generation.")
                 st.stop()
 
-            # 2. Fetch all registered students in this cohort to get names
-            conn = sqlite3.connect("data/database.db")
-            query = "SELECT roll_no, name FROM users WHERE year = ? AND section = ?"
-            db_students = pd.read_sql_query(query, conn, params=(rpt_year, rpt_sec))
-            conn.close()
+            # 2. Fetch cohort from Supabase
+            db_students = db_get_all_students()
+            # Filter in Python for simplicity
+            cohort_names = {str(s["roll_no"]): s["name"] for s in db_students if s["year"] == rpt_year and s["section"] == rpt_sec}
             
-            # Create a mapping for quick name lookup
-            name_map = dict(zip(db_students['roll_no'].astype(str), db_students['name']))
+            # 3. Get present students for this period
+            present_roll_nos = df[df['Period_ID'] == selected_pid]['Roll_No'].astype(str).tolist() if not df.empty else []
             
-            # 3. Get present students from the CSV for the selected period
-            present_roll_nos = []
-            if not df.empty and 'Period_ID' in df.columns and 'Roll_No' in df.columns:
-                present_roll_nos = df[df['Period_ID'] == selected_pid]['Roll_No'].astype(str).tolist()
-            
-            # 4. Construct the full report
+            # 4. Construct report
             report_data = []
             for r_no in full_range:
                 status = 'P' if r_no in present_roll_nos else 'A'
-                name = name_map.get(r_no, "Not Registered")
+                name = cohort_names.get(r_no, "Not Registered")
                 report_data.append([r_no, name, status])
             
             report_df = pd.DataFrame(report_data, columns=["Roll_No", "Name", "Status"])
