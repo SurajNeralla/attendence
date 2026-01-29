@@ -107,8 +107,15 @@ def db_get_active_periods():
 
 def db_delete_period(period_id):
     if not supabase: return False
-    supabase.table("periods").delete().eq("id", period_id).execute()
-    return True
+    try:
+        # First delete referencing attendance records to avoid FK constraint error
+        supabase.table("attendance").delete().eq("period_id", period_id).execute()
+        # Then delete the period itself
+        supabase.table("periods").delete().eq("id", period_id).execute()
+        return True
+    except Exception as e:
+        print(f"Supabase Error (delete_period): {e}")
+        return False
 
 # Attendance Operations
 def db_mark_attendance(roll_no, name, year, section, subject, period_id):
