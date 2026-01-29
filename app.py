@@ -13,12 +13,6 @@ from scripts.supabase_utils import db_mark_attendance, db_get_attendance_by_date
 # Page configuration
 st.set_page_config(page_title="GVP Attendance System", layout="wide")
 
-# Session state for tracking marked students
-if 'marked_students' not in st.session_state:
-    st.session_state.marked_students = set()
-if 'auto_refresh' not in st.session_state:
-    st.session_state.auto_refresh = False
-
 # PWA Logic: Inject Manifest and Service Worker
 # Note: Using raw GitHub URLs for reliable cross-domain serving on Streamlit Cloud
 pwa_html = """
@@ -179,48 +173,40 @@ elif choice == "Mark Attendance":
         if recognizer is None:
             st.error("Model not found. Please register users first.")
         else:
-            st.info("📸 Click 'Capture' to detect and mark attendance automatically")
+            run = st.checkbox('Start Webcam')
+            FRAME_WINDOW = st.image([])
+            camera = cv2.VideoCapture(0)
             
-            # Simple capture button
-            capture = st.button("🎯 Capture & Detect", type="primary", use_container_width=True)
-            
-            if capture:
-                # Use camera input for capture
-                img_file = st.camera_input("Position your face", key="attendance_camera")
+            while run:
+                ret, frame = camera.read()
+                if not ret: break
                 
-                if img_file:
-                    # Process the image
-                    file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
-                    frame = cv2.imdecode(file_bytes, 1)
+                face_gray, bbox = detect_face(frame)
+                if face_gray is not None:
+                    (x, y, w, h) = bbox
+                    id_, confidence = recognizer.predict(face_gray)
+                    name = "Unknown"
                     
-                    face_gray, bbox = detect_face(frame)
-                    if face_gray is not None:
-                        id_, confidence = recognizer.predict(face_gray)
-                        
-                        if confidence < 80:
-                            info = get_student_info(id_)
-                            if info:
-                                name = info["name"]
-                                roll_no = info["roll_no"]
-                                year = info["year"]
-                                section = info["section"]
-                                
-                                # Mark attendance
-                                if roll_no not in st.session_state.marked_students:
-                                    if db_mark_attendance(roll_no, name, year, section, subject, pid):
-                                        st.session_state.marked_students.add(roll_no)
-                                        st.success(f"✅ Attendance marked for {name}!")
-                                        st.balloons()
-                                else:
-                                    st.info(f"Already marked: {name}")
-                        else:
-                            st.error("Face not recognized. Please try again.")
+                    if confidence < 80:
+                        info = get_student_info(id_)
+                        if info:
+                            name = info["name"]
+                            roll_no = info["roll_no"]
+                            year = info["year"]
+                            section = info["section"]
+                            
+                            # Cloud Logging with Supabase
+                            if db_mark_attendance(roll_no, name, year, section, subject, pid):
+                                st.toast(f"✅ Attendance marked for {name}")
                     else:
-                        st.error("No face detected. Please ensure your face is clearly visible.")
-            
-            # Show marked count
-            if st.session_state.marked_students:
-                st.success(f"📊 {len(st.session_state.marked_students)} student(s) marked in this session")
+                        name = "Unknown"
+                    
+                    cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                    cv2.putText(frame, f"{name}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+                FRAME_WINDOW.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            else:
+                camera.release()
 
 elif choice == "View Records":
     st.subheader("📊 Attendance History (Cloud)")
