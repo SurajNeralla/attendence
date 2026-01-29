@@ -1,6 +1,15 @@
+<<<<<<< HEAD
 opencv-contrib-python
 numpy
 pandas
 streamlit
 supabase
 python-dotenv
+=======
+opencv-contrib-python
+numpy
+pandas
+streamlit
+supabase
+python-dotenv
+>>>>>>> 79b62da0671f2db217909759bbc1662ebee903b4

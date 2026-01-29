@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 .venv/
 __pycache__/
 *.pyc
@@ -11,3 +12,18 @@ models/trainer.yml
 node_modules/
 .gemini/
 brain/
+=======
+.venv/
+__pycache__/
+*.pyc
+data/database.db
+data/faces/
+data/attendance_*.csv
+models/trainer.yml
+.streamlit/
+.env
+.DS_Store
+node_modules/
+.gemini/
+brain/
+>>>>>>> 79b62da0671f2db217909759bbc1662ebee903b4

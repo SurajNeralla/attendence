@@ -1,2 +1,7 @@
+<<<<<<< HEAD
 libgl1-mesa-glx
 libglib2.0-0
+=======
+libgl1-mesa-glx
+libglib2.0-0
+>>>>>>> 79b62da0671f2db217909759bbc1662ebee903b4
