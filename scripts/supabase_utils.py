@@ -4,13 +4,32 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-url = os.environ.get("SUPABASE_URL")
-key = os.environ.get("SUPABASE_KEY")
+import streamlit as st
+
+# Load credentials
+# Priority: 1. Streamlit Secrets (Cloud) -> 2. Environment Variables (Local)
+url = None
+key = None
+
+try:
+    if "SUPABASE_URL" in st.secrets:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+except:
+    pass
+
+if not url:
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
 
 if not url or not key:
     supabase = None
 else:
-    supabase: Client = create_client(url, key)
+    try:
+        supabase: Client = create_client(url, key)
+    except Exception as e:
+        print(f"Failed to initialize Supabase client: {e}")
+        supabase = None
 
 def get_supabase_client():
     return supabase
